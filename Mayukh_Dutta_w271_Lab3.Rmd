@@ -75,11 +75,13 @@ sh(library(Hmisc));sh(library(plm));sh(library(ggplot2));sh(library(gridExtra));
 1. (40%) Load the data. Provide a description of the basic structure of the dataset, as we have done throughout the semester. Conduct a very thorough EDA, which should include both graphical and tabular techniques, on the dataset, including both the dependent variable *totfatrte* and the potential explanatory variables. You need to write a detailed narrative of your observations of your EDA. *Reminder: giving an "output dump" (i.e. providing a bunch of graphs and tables without description and hoping your audience will interpret them) will receive a zero in this exercise.*
 ```{r}
 load(file = "driving.RData")
+desc
 driving <- data
 sum(is.na(driving))
 nrow(driving)
 colnames(driving)
 ```
+
 There are no missing values in the dataset and there are 1200 observations.
 Here the subjects are indicated by the state variable. For each state there are multiple observations, one for each year.
 
@@ -89,6 +91,7 @@ table(driving$state)
 table(driving$year)
 ```
 For each state there are 25 observations one for each year. For each year there are 48 observations, one for each state. *This panel is balanced*. There are a total of 1200 observations and since $1200 = 25X48$ we have a balanced panel.
+d80 through d04 are the indicator variables for each of the time periods.
 
 We cannot use OLS here because we suspect voilation of the independence assumptions. Let us confirm that using the Durbin-Watson test.
 
@@ -105,16 +108,19 @@ Let's see the response variable (total fatality rate) distribution broken down b
 ```{r}
 ggplot(driving, aes(factor(year), totfatrte)) +  geom_boxplot(aes(fill = factor(year))) + geom_jitter() + ggtitle("Total fatality rate by year")
 ```
+
 Overall, the total fatality rate has dropped over the years.
 
 ```{r}
 ggplot(driving, aes(year, totfatrte)) +  geom_point(aes(color = factor(seatbelt)))
 ```
+
 Early years, pre-1985 there seems to have been no seatbelt law. The fatality rate dropped over the years as 1, 2 seatbelt laws were introduced. States started with introduction of seatbelt rule 2 and then majority of them moved to seatbelt rule 1.
 
 ```{r}
 ggplot(driving, aes(year, totfatrte)) +  geom_point(aes(color = zerotol))
 ```
+
 
 Most of  the states moved to a zero tolerance policy over the years. In fact all the states seems to have introduced theh zero tolerance policy. 
 
@@ -122,10 +128,36 @@ Most of  the states moved to a zero tolerance policy over the years. In fact all
 ggplot(driving, aes(year, totfatrte)) +  geom_point(aes(color = sl65))
 ```
 
+
 Most of the states seemed to have moved to speed limit 65 policy which correlates storngly with the drop in fatality rate. However several states seemed to have moved away to a possibly lower limit (55 mph) post 1996.
 
-TODO: find the variables that the time invariant and the ones which are time varying. Perform specific EDA on those varibles.
+```{r}
+ggplot(driving, aes(year, log(statepop))) +  geom_point(aes(color = factor(state)))
+```
 
+**TODO: find the variables that are time invariant and the ones which are time varying. Perform specific EDA on those varibles.**
+
+*Fixed year effect* 
+
+$\delta_t$ the change that is common to every city in year $t$.  
+
+It estimates the common change in the fatality rate in year $t$ relative to the base / reference year $1980$.
+
+$a_i$ estimates the common change in fatality rate in a city $i$ relative to city 1 controlling for all time varying effects.
+
+We could take a look at the panel data after inserting a structure into the dataset. The indices here are the "state" and the "year".  
+We will have to select the appropriate explanatory variables to look at the correlation between those variables and the fatality rate. We would drop some of variables which are likely to have a higher correlation such as "fatality rate" with "weekend fatality rate" and "night fatality rate" etc. from the dataset used for the correlation matrix. 
+```{r}
+library(plm)
+library(corrplot)
+
+driving.panel <- pdata.frame(driving, c("state","year"), drop.index = TRUE)
+colnames(driving.panel)
+M <- cor(driving.panel[,c(1:12,19:20,23:28,54)])
+corrplot(M, method='circle')
+```
+
+We see that the "perc_14_24" which is the percent population between 14 and 24 has a very strong correlation with the "fatality rate". The 'minimum age' has a negative correlation with the fatality rate, so is the 'zero tolerance' even though it is not very strong.
 
 2. (15%) How is the our dependent variable of interest *totfatrte* defined? What is the average of this variable in each of the years in the time period covered in this dataset? Estimate a linear regression model of *totfatrte* on a set of dummy variables for the years 1981 through 2004. What does this model explain? Describe what you find in this model. Did driving become safer over this period? Please provide a detailed explanation.
 
