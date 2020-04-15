@@ -75,7 +75,6 @@ sh(library(Hmisc));sh(library(plm));sh(library(ggplot2));sh(library(gridExtra));
 1. (40%) Load the data. Provide a description of the basic structure of the dataset, as we have done throughout the semester. Conduct a very thorough EDA, which should include both graphical and tabular techniques, on the dataset, including both the dependent variable *totfatrte* and the potential explanatory variables. You need to write a detailed narrative of your observations of your EDA. *Reminder: giving an "output dump" (i.e. providing a bunch of graphs and tables without description and hoping your audience will interpret them) will receive a zero in this exercise.*
 ```{r}
 load(file = "driving.RData")
-desc
 driving <- data
 sum(is.na(driving))
 nrow(driving)
@@ -137,22 +136,13 @@ ggplot(driving, aes(year, log(statepop))) +  geom_point(aes(color = factor(state
 
 **TODO: find the variables that are time invariant and the ones which are time varying. Perform specific EDA on those varibles.**
 
-*Fixed year effect* 
-
-$\delta_t$ the change that is common to every city in year $t$.  
-
-It estimates the common change in the fatality rate in year $t$ relative to the base / reference year $1980$.
-
-$a_i$ estimates the common change in fatality rate in a city $i$ relative to city 1 controlling for all time varying effects.
 
 We could take a look at the panel data after inserting a structure into the dataset. The indices here are the "state" and the "year".  
 We will have to select the appropriate explanatory variables to look at the correlation between those variables and the fatality rate. We would drop some of variables which are likely to have a higher correlation such as "fatality rate" with "weekend fatality rate" and "night fatality rate" etc. from the dataset used for the correlation matrix. 
 ```{r}
 library(plm)
 library(corrplot)
-
 driving.panel <- pdata.frame(driving, c("state","year"), drop.index = TRUE)
-colnames(driving.panel)
 M <- cor(driving.panel[,c(1:12,19:20,23:28,54)])
 corrplot(M, method='circle')
 ```
@@ -160,6 +150,22 @@ corrplot(M, method='circle')
 We see that the "perc_14_24" which is the percent population between 14 and 24 has a very strong correlation with the "fatality rate". The 'minimum age' has a negative correlation with the fatality rate, so is the 'zero tolerance' even though it is not very strong.
 
 2. (15%) How is the our dependent variable of interest *totfatrte* defined? What is the average of this variable in each of the years in the time period covered in this dataset? Estimate a linear regression model of *totfatrte* on a set of dummy variables for the years 1981 through 2004. What does this model explain? Describe what you find in this model. Did driving become safer over this period? Please provide a detailed explanation.
+
+Running OLS only on data for one panel only, the equation can be written as below
+
+*Fixed year effect* 
+
+$$totfatrte_{it} = \beta_0 + \delta_{81} d81 + \delta_{82} d82 + ... + \delta_{04}d04 + u_{it}$$
+
+$\delta_t$ the change that is common to every city in year $t$. It estimates the common change in the fatality rate in year $t$ relative to the base / reference year $1980$.
+We assume that this change is common across all cities for a given year $t$.
+
+```{r}
+driving.ols <- lm(totfatrte ~ d81 + d82 + d83 + d84 + d85 + d86 + d87 + d88 + d89 + d90 + d91 + d92 + d93 + d94 + d95 + d96 + d97 + d98 + d99 + d00 + d01 + d02 + d03 + d04, data=driving)
+summary(driving.ols)
+```
+From the above coefficients, we can say that for the year 2000, the fatality rate has dropped by 8.66 units as compared to the year 1980. Except for the year 1981, the coefficients for all the year dummies are significant. From this we can also say that the fatality rate has been dropping over the years. Driving did seem to become safer over the years.
+
 
 3. (15%) Expand your model in *Exercise 2* by adding variables *bac08, bac10, perse, sbprim, sbsecon, sl70plus, gdl, perc14_24, unem, vehicmilespc*, and perhaps *transformations of some or all of these variables*. Please explain carefully your rationale, which should be based on your EDA, behind any transformation you made. If no transformation is made, explain why transformation is not needed. How are the variables *bac8* and *bac10* defined? Interpret the coefficients on *bac8* and *bac10*. Do *per se laws* have a negative effect on the fatality rate? What about having a primary seat belt law? (Note that if a law was enacted sometime within a year the fraction of the year is recorded in place of the zero-one indicator.)
 
