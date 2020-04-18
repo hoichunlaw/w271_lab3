@@ -169,9 +169,51 @@ From the above coefficients, we can say that for the year 2000, the fatality rat
 
 3. (15%) Expand your model in *Exercise 2* by adding variables *bac08, bac10, perse, sbprim, sbsecon, sl70plus, gdl, perc14_24, unem, vehicmilespc*, and perhaps *transformations of some or all of these variables*. Please explain carefully your rationale, which should be based on your EDA, behind any transformation you made. If no transformation is made, explain why transformation is not needed. How are the variables *bac8* and *bac10* defined? Interpret the coefficients on *bac8* and *bac10*. Do *per se laws* have a negative effect on the fatality rate? What about having a primary seat belt law? (Note that if a law was enacted sometime within a year the fraction of the year is recorded in place of the zero-one indicator.)
 
+```{r}
+library(car)
+df_3 <- driving[, c('totfatrte','bac08','bac10','perse','sbprim','sbsecon','sl70plus','gdl','perc14_24','unem','vehicmilespc')]
+M <- cor(df_3)
+corrplot(M, method='circle')
+```
+The correlation plot shows that the fatality rate has a high correlation with the *perc_14_24*.
+
+```{r}
+driving.ols.pool <- lm(totfatrte ~ d81 + d82 + d83 + d84 + d85 + d86 + d87 + d88 + d89 + d90 + d91 + d92 + d93 + d94 + d95 + d96 + d97 + d98 + d99 + d00 + d01 + d02 + d03 + d04 + bac08 + bac10 + perse + sbprim + sbsecon + sl70plus + gdl + perc14_24 + unem + vehicmilespc, data=driving)
+summary(driving.ols.pool)
+```
+Even though the perc_14_24 had a strong correlation with fatality rate as seen in the corrplot, it did not turn out signifianct in the pooled regression. All the bac08, bac10 and sbprim are all significant. They also have a strong negative relationship with the fatality rate. The perse however is not very significant.
+However, speed limit of 70-plus did turn out significiant. It fact it indicates that controlling for all other factors, a unit change in *sl70plus* increases the fatality rate by $3.34$ units.
+
 4. (15%) Reestimate the model from *Exercise 3* using a fixed effects (at the state level) model. How do the coefficients on *bac08, bac10, perse, and sbprim* compare with the pooled OLS estimates? Which set of estimates do you think is more reliable? What assumptions are needed in each of these models?  Are these assumptions reasonable in the current context?
 
+
+```{r}
+driving.panel <- pdata.frame(driving, c("state","year"), drop.index = TRUE)
+df_4.panel <- driving.panel[, c('d81', 'd82', 'd83', 'd84', 'd85', 'd86', 'd87', 'd88', 'd89', 'd90', 'd91', 'd92', 'd93', 'd94', 'd95', 'd96', 'd97', 'd98', 'd99', 'd00', 'd01', 'd02', 'd03', 'd04', 'totfatrte','bac08','bac10','perse','sbprim','sbsecon','sl70plus','gdl','perc14_24','unem','vehicmilespc')]
+fatrte.plm <- plm(totfatrte ~ d81 + d82 + d83 + d84 + d85 + d86 + d87 + d88 + d89 + d90 + d91 + d92 + d93 + d94 + d95 + d96 + d97 + d98 + d99 + d00 + d01 + d02 + d03 + d04 + bac08 + bac10  + perse + sbprim + sbsecon + sl70plus + gdl + perc14_24 + unem + vehicmilespc, data=df_4.panel, model="within")
+summary(fatrte.plm)
+```
+Just like the pooled OLS, the coefficients for the parameters bac08 and bac10are very significant. They also have a very strong negative relationship with fatality rate. However the coefficients indicate that the effect of the variables are less when compared with what was reported in the pooled OLS. e.g. for bac08, the fatality rate drops by 1.4 units for every unit increase in bac08 level, however with the pooled OLS, the indication is that for every unit increase in bac08, the fatality rate drops by 2.49 units. The fixed effect model is much more conservative when compared to the pooled OLS. The *perse* variable turns out to be significant in the fixed effect model. The effect of the variable reported higher when compared to the effect reported in the pooled OLS.
+
+
 5. (5%) Would you perfer to use a random effects model instead of the fixed effects model you built in *Exercise 4*? Please explain.
+
+```{r}
+driving.panel <- pdata.frame(driving, c("state","year"), drop.index = TRUE)
+df_4.panel <- driving.panel[, c('d81', 'd82', 'd83', 'd84', 'd85', 'd86', 'd87', 'd88', 'd89', 'd90', 'd91', 'd92', 'd93', 'd94', 'd95', 'd96', 'd97', 'd98', 'd99', 'd00', 'd01', 'd02', 'd03', 'd04', 'totfatrte','bac08','bac10','perse','sbprim','sbsecon','sl70plus','gdl','perc14_24','unem','vehicmilespc')]
+fatrte.plm <- plm(totfatrte ~  d81 + d82 + d83 + d84 + d85 + d86 + d87 + d88 + d89 + d90 + d91 + d92 + d93 + d94 + d95 + d96 + d97 + d98 + d99 + d00 + d01 + d02 + d03 + d04 + bac08 + bac10  + perse + sbprim + sbsecon + sl70plus + gdl + perc14_24 + unem + vehicmilespc, data=df_4.panel, model="between")
+summary(fatrte.plm)
+```
+The random effects model does not allow for arbritrary correlations between $a_i$ (i.e. unobserved fixed effects) and $x_{itj}$.
+The random effects model has ignored the coefficients for the year dummies. It has reported only 3 variables as significant. The *sl70plus*, *unem* and *vehicmilespc*. Is it reasonable to assume that the *bac08* or *bac10* are uncorrelated to the unobserved fixed effects? e.g. there could be many reasons why people drive drunk other than just the fact that they may be young or unemployed. It may also depend on the type of jobs people are involved in, in their respective cities, or the culture of the cities etc. These unobserved fixed effects may have correlation with *bac08* and or *bac10*. Similarly, *unem* may have strong correlation with unobserved city effects, due to the geographical features or the city, presence of industries that rely on natural resources such as oil and gas, mines etc. may be limited that effects the unemployment rates of the city. 
+
+```{r}
+driving <- driving %>% mutate(sl70plus_bin = ifelse(sl70plus > 0.5, 1, 0))
+ggplot(driving, aes(x=year, y=totfatrte, size=sl70plus, color=factor(state))) + geom_line()
+```
+The plot above shows that while several of the states moved to a 70mph speed limit, the effect of the change on the fatality rate was different for different states. Observe, how, for some states the fatality rates increased after the change to *sl70plus* while for a very few they continued on the downward trend. This makes us believe that there are some unobserved city effects that effect the fatality rate for a given change in speed limit. Therefore, the explanatory variable *sl70plus* may not be an imporant explanatory variable for the fatality rate, however it comes up as very significant in the RE model. 
+
+All the above provides strong evidence that a fixed effect model might be more appropriate for this dataset.
 
 6. (5%) Suppose that *vehicmilespc*, the number of miles driven per capita, increases by $1,000$. Using the FE estimates, what is the estimated effect on *totfatrte*? Please interpret the estimate.
 
