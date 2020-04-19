@@ -1,0 +1,288 @@
+---
+title : 'W271 Lab3'
+author: Isaac Law, Mayukh Dutta, Mike King
+output: 
+  pdf_document:
+    latex_engine: xelatex
+fontsize: 11pt
+geometry: margin=1in
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+#Load libraries
+sh <- suppressPackageStartupMessages
+sh(library(Hmisc));sh(library(plm));sh(library(ggplot2));sh(library(gridExtra));sh(library(dplyr));sh(library(fpp3));
+sh(library(lmtest));library(corrplot);library(car)
+```
+
+## Question 1
+
+```{r}
+# load data
+load(file = "driving.RData")
+sum(is.na(data))
+table(data$state)
+table(data$year)
+```
+
+There are no missing data and this is a **balanced panel**. For each state there are 25 observations, correponding to 25 years. For each year, there are 48 observations, corresponding to 48 states.
+
+Our primary outcome variable is _totfatrte_. Since we are interested in how changes in law associate with changes in fatalities, the potential explanatory variables are those pertaining to legal matters. The variables pertaining to legal matters are _sl55_, _sl65_, _sl70_. _sl75_, _slnone_, _sbprim_, _sbsecon_, _minage_, _zerotol_, _gdl_, _bac10_, _bac08_, and _perse_.  All of these are binary indicator variables (with a few exceptions if a law changed in the middle of the year for that observation's state.)  The _sl70plus_ variable is a calculation of _sl70_ or _sl75_ or _slnone_.  The _seatbelt_ variable is an integer-coded factor indicating no seat belt law, secondary seatbelt law (_sbsecon_), and primary seatbelt law (_sbprim_).  Vairables _unem_, _perc14_24_, and _vehicmilespc_ are not laws, but they could be relevant either standalone or as interaction terms.  The remaining variables are variations on fatality rates measured in different ways, or are values necessary to calculate the various fatality rates.  Therefore they are not candidates to explain _totfatrte_.
+
+We can begin with a Durbin-Watson test to see if there is correlation in the residuals of a basic linear model:
+
+```{r}
+dwtest(totfatrte ~ seatbelt+minage+zerotol+sl70plus+gdl+bac08+bac10+
+           perse+vehicmilespc+unem+perc14_24, data=data)
+```
+
+The null hypothesis of non-correlation is rejected, confirming the violation of independence assumption. Therefore we will have to use panel methods for analysis.
+
+We must be careful when thinking about our primary outcome variable as a function of these explanatory variables.  Many other changes occurred over this time period that could be explanatory for fatality rates.  Automotive technology changed (airbags, anti-lock brakes, influx of Japanese-built cars), national infrastructure changed (more multi-lane highways, nighttime lighting), and many other technology and cultural changes occurred as well (cell phones, urbanization, life expectancy.)  There are potentially many unobserved explanatory variables.  The premise of our endeavor implies causality, asking if changes in laws can drive changes in fatalities.  It must be noted that this is observational, not experimental, data.  Although we may think of hypothetical changes to model parameters "causing" changes in estimated outcomes (question 6), we certainly make no claims of real-world causality should such changes be induced by intervention.
+
+A look at various distributions of our outcome variable, _totfatrte_:
+
+```{r warnings=FALSE}
+# dependent variable, totfatrte
+p1<-qplot(data$totfatrte,geom="histogram",binwidth =2,main = "Histogram of Fatalities", 
+          xlab = "Fatalities",fill=I("blue"),col=I("red"),alpha=I(.2),xlim=c(0,60))
+p2 <- ggplot(data, aes(factor(state), totfatrte))+ggtitle("Fatalities by State")+
+    theme(plot.title = element_text(lineheight=1))+geom_boxplot(aes(fill = factor(state)), show.legend = FALSE)
+p3 <-ggplot(data, aes(year, totfatrte)) + geom_line(aes(col = as.factor(state))) + 
+    ggtitle("Fatality Rate by Year") + xlab("Year") + ylab("Fatality Rate") + theme(legend.position = "none")
+p4<-data %>% group_by(year)%>%summarise(mean_group=mean(totfatrte))%>%ggplot(aes(x=year, y=mean_group)) + geom_point() +geom_line() + ggtitle("Fatalities Mean Plot across Year") + ylab("Mean Fatalities")
+grid.arrange(p1,p2,p3,p4,nrow=2)
+```
+
+Most of values of fatalities are between 10 to 30 per 100,000 population. We observed that state 32 and state 51 have higher fatalities rate. Over the years, we observed that there are 2 periods which fatality rate changed more than any other time period. The first is 1980 through 1983 and the second is 1988 through 1992. The other timespans (1983-1988 and 1992-2004) show nearly stationary fatality rates.  The overall trend is downward, particularly from 1980 through 1992.
+
+A look at seatbelt law changes over the timespan:
+
+```{r, warning=FALSE}
+p1<-qplot(data$seatbelt,geom="histogram",binwidth =0.2,main = "Histogram of Seatbelt", xlab = "Seatbelt",fill=I("blue"),col=I("red"),alpha=I(.2),xlim=c(-0.5,2.5))
+p2<-ggplot(data, aes((year), seatbelt))+geom_jitter(aes(color=seatbelt)) +ggtitle("Seatbelt by Year") + theme(plot.title = element_text(lineheight=1)) 
+p3<-data %>% group_by(year)%>%summarise(mean_group=mean(seatbelt))%>%ggplot(aes(x=year, y=mean_group)) + geom_point() +geom_line() + ggtitle("Mean Plot across Year") + ylab("Mean Seatbelt")
+p4<-ggplot(data,aes(year, totfatrte)) + geom_point(aes(color=factor(seatbelt)))+ggtitle("Seatbelt & Fatalities by Year")
+grid.arrange(p1,p2,p3,p4,nrow=2)
+```
+
+Over the years, states started with mostly no seatbelt laws until 1985. Since 1985 states changed to have primary seatbelt law and secondary seatbelt law. From 1995, some more states change from secondary seatbelt law to primary seatbelt law. Primary seatbelt law is stricter than secondary seatbelt law, we observe stricter seatbelt law implemented by states over years. The implementation of more strict seatbelt laws appears to correlate negatively with fatality rates, suggesting that seatbelt laws are worthwhile to consider as explanatory variables.
+
+A look at the limits of blood-alcohol content for a DWI violation:
+
+```{r, warning=FALSE}
+data$bac <- ifelse(round(data$bac08)==1, 2, ifelse(round(data$bac10)==1,1,0))
+p1<-qplot(data$bac,geom="histogram",binwidth =0.2,main = "Histogram of bac", xlab = "bac",fill=I("blue"),col=I("red"),alpha=I(.2),xlim=c(-0.5,2.5))
+p2<-ggplot(data, aes((year), bac))+geom_jitter(aes(color=bac)) +ggtitle("bac by Year") + theme(plot.title = element_text(lineheight=1)) 
+p3<-data %>% group_by(year)%>%summarise(mean_group=mean(bac))%>%ggplot(aes(x=year, y=mean_group)) + geom_point() +geom_line() + ggtitle("Mean Plot across Year") + ylab("Mean")
+p4<-ggplot(data,aes(year, totfatrte)) + geom_point(aes(color=bac))+ ggtitle("bac & fatalities by Year")
+grid.arrange(p1,p2,p3,p4,nrow=2)
+```
+
+In these plot, value 2 corresponds to blood alcohol level 0.08% and value 1 correspond to blood alcohol level 0.10%. Majority of data points in dataset have value of 1. Over year we observe that majority of states had no law on blood alcohol level, and then states started to implement law on blood alcohol level with 0.10%, and then more states implemented law on blood alcohol level 0.08%. And the end of the time period, majority of states had law on blood alcohol level with 0.08%. There is pattern of stricter law over years, and this is correlated with lower fatality rates over years.
+
+A look at zero-tolerance policy laws:
+
+```{r}
+p1<-qplot(data$zerotol,geom="histogram",binwidth =0.2,main = "Histogram of zerotol", xlab = "perse",fill=I("blue"),col=I("red"),alpha=I(.2),xlim=c(-0.5,1.5))
+p2<-ggplot(data, aes((year), zerotol))+geom_jitter(aes(color=zerotol)) +ggtitle("zerotol by Year") + theme(plot.title = element_text(lineheight=1)) 
+p3<-data %>% group_by(year)%>%summarise(sum_group=sum(zerotol))%>%ggplot(aes(x=year, y=sum_group)) + geom_point() +geom_line() + ggtitle("# states across Year") + ylab("# states")
+p4<-ggplot(data,aes(year, totfatrte)) + geom_point(aes(color=zerotol))+ggtitle("zerotol & fatalities by Year")
+grid.arrange(p1,p2,p3,p4,nrow=2)
+```
+
+At the start of time period, no states have zero tolerance law. Starting from year 1983, some states started to have zero tolerance law and more states followed in subsequent years. Since year 1996, all states have zero tolerance law. The implementation of this stricter law appears to be correlated with the decreasing fatality rates over years.
+
+A look at per-se laws which allow a judge to revoke a driver's license without a "per-se" related driving violation:
+
+```{r, warnings=FALSE}
+p1<-qplot(data$perse,geom="histogram",binwidth =0.2,main = "Histogram of perse", xlab = "perse",fill=I("blue"),col=I("red"),alpha=I(.2),xlim=c(-0.5,1.5))
+p2<-ggplot(data, aes((year), perse))+geom_jitter(aes(color=perse)) +ggtitle("perse by Year") + theme(plot.title = element_text(lineheight=1)) 
+p3<-data %>% group_by(year)%>%summarise(sum_group=sum(perse))%>%ggplot(aes(x=year, y=sum_group)) + geom_point() +geom_line() + ggtitle("# states across Year") + ylab("# states")
+p4<-ggplot(data,aes(year, totfatrte)) + geom_point(aes(color=perse)) + ggtitle("perse & fatalities by Year")
+grid.arrange(p1,p2,p3,p4,nrow=2)
+```
+
+Around half of data points have value of 0 and the other half have values of 1. Over time, we observe that more states implemented the per se law. This increasing trend show some correlation with fatality rates.  The handful of data points valued neither 0 nor 1 are observations where the law was changed mid-year.  In subsequent discussion we will recall that these points are a small minority, and also that our outcome variable _totfatrte_ was not adjusted analogously (i.e. fatalities in first 6 months averaged with fatalities in last 6 months).
+
+Now we look at speed limits.  Speed limits are different from the other explanatory variables because they have been relaxed over the years, whereas the other laws have become more strict.  The _sl70plus_ variable is a reasonable proxy for the various speed limit changes over time, so we will focus on that.
+
+```{r warning=FALSE}
+p1<-qplot(data$sl70plus,geom="histogram",binwidth =0.2,main = "Histogram of sl70plus", xlab = "perse",fill=I("blue"),col=I("red"),alpha=I(.2),xlim=c(-0.5,1.5))
+p2<-ggplot(data, aes((year), sl70plus))+geom_jitter(aes(color=sl70plus)) +ggtitle("sl70plus by Year") + theme(plot.title = element_text(lineheight=1)) 
+p3<-data %>% group_by(year)%>%summarise(sum_group=sum(sl70plus))%>%ggplot(aes(x=year, y=sum_group)) + geom_point() +geom_line() + ggtitle("# states across Year") + ylab("# states")
+p4<-ggplot(data,aes(year, totfatrte)) + geom_point(aes(color=sl70plus)) + ggtitle("sl70plus & fatalities by Year")
+grid.arrange(p1,p2,p3,p4,nrow=2)
+```
+
+Most data points are with value 0. All states have stricter speed limit at before year 1995. Since 1995, some states started to relax the limit on speed and after year 1999, around 30 states have speed limit of 70, 75 or no limit. 
+
+A look at laws offering graduated driver's licensing:
+
+```{r warning=FALSE}
+p1<-qplot(data$gdl,geom="histogram",binwidth =0.2,main = "Histogram of gdl", xlab = "perse",fill=I("blue"),col=I("red"),alpha=I(.2),xlim=c(-0.5,1.5))
+p2<-ggplot(data, aes((year), gdl))+geom_jitter(aes(color=gdl)) +ggtitle("gdl by Year") + theme(plot.title = element_text(lineheight=1)) 
+p3<-data %>% group_by(year)%>%summarise(sum_group=sum(gdl))%>%ggplot(aes(x=year, y=sum_group)) + geom_point() +geom_line() + ggtitle("# states across Year") + ylab("# states")
+p4<-ggplot(data,aes(year, totfatrte)) + geom_point(aes(color=gdl))+ggtitle("gdl & fatalities by Year")
+grid.arrange(p1,p2,p3,p4,nrow=2)
+```
+
+Most data points in dataset are with value 0. From plots across years, we observed that states started to have graduated drivers license law since 1996, and more states follow this trend. At then end of time period, most of states implemented this law. During this period of increasing states implementing GDL, fatality rates does not seem to show decreasing trend.
+
+A look at what may be considered the fraction of "youth" drivers (those aged 14-24 years):
+
+```{r warning=FALSE}
+p1<-qplot(data$perc14_24,geom="histogram",binwidth = 0.2,main = "Histogram of % population 14-24",xlab = "percentage",fill=I("blue"),col=I("red"),alpha=I(.2),xlim=c(11,21))
+p2<-ggplot(data, aes(factor(state), perc14_24))+geom_boxplot(aes(fill = factor(state)),show.legend=FALSE)+ggtitle("% population 14-24 by State")+theme(plot.title = element_text(lineheight=1)) 
+p3 <-ggplot(data, aes(year, perc14_24)) + geom_line(aes(col = as.factor(state))) + ggtitle("perc14-24 by Year") + xlab("Year") + ylab("perc14_24") + theme(legend.position = "none")
+p4<-ggplot(data,aes(year, totfatrte)) + geom_point(aes(color=perc14_24))+ggtitle("perc14-24 & fatalities by Year")
+grid.arrange(p1,p2,p3,p4,nrow=2)
+```
+
+Majority of values are in range of 13% to 18%. We observed that state 45 has higher percentage of 14-24 years old population, especially after year 1988. The decreasing trend of % population of 14-24 show some degree of correlation to the decreasing trend of fatality rate.  There is one state that is a clear outlier in the trend of older population, showing anomalous increase in _perc_14_24_ from 1987 through 1997.  It appears that there are a few other states showing increases as well, although perhaps to a lesser degree.
+
+A look at unemployment:
+
+```{r warning=FALSE, fig.height=3.5, fig.width=7}
+p1<-qplot(data$unem,geom="histogram",binwidth = 0.5,main="Histogram of Unemployment",xlab = "perc14_24",fill=I("blue"),col=I("red"),alpha=I(.2),xlim=c(0,20))
+p2<-ggplot(data, aes(factor(state), unem))+geom_boxplot(aes(fill = factor(state)),show.legend=FALSE)+ggtitle("unem by State")+theme(plot.title = element_text(lineheight=1)) 
+p3 <-ggplot(data, aes(year, unem)) + geom_line(aes(col = as.factor(state))) + ggtitle("unem by Year") + xlab("Year") + ylab("unem") + theme(legend.position = "none")
+p4<-ggplot(data,aes(year, totfatrte)) + geom_point(aes(color=unem))+ggtitle("unem & fatalities by Year")
+grid.arrange(p1,p2,p3,p4,nrow=2)
+```
+
+Most of values are between 3% to 10%, with some outliers above 14%. We observe that state 41 has higher unemployment rate across years. The decreasing trend of unemployment rate show correlation with the decreasing trend of fatality rates.
+
+A look at vehicle miles per capita:
+
+```{r warning=FALSE, fig.height=3.5, fig.width=7}
+p1<-qplot(data$vehicmilespc,geom="histogram",binwidth = 200,main = "Histogram of vehicmilespc",xlab = "miles (B)",fill=I("blue"),col=I("red"),alpha=I(.2),xlim=c(4000,19000))
+p2<-ggplot(data, aes(factor(state), vehicmilespc))+geom_boxplot(aes(fill = factor(state)),show.legend=FALSE)+ggtitle("vehicmilespc by State")+theme(plot.title = element_text(lineheight=1)) 
+p3 <-ggplot(data, aes(year, vehicmilespc)) + geom_line(aes(col = as.factor(state))) + ggtitle("vehicmilespc by Year") + xlab("Year") + ylab("unem") + theme(legend.position = "none")
+p4<-ggplot(data,aes(year, totfatrte)) + geom_point(aes(color=vehicmilespc))+ggtitle("vehicmilespc & fatalities")
+grid.arrange(p1,p2,p3,p4,nrow=2)
+```
+
+Most values are between 5000 to 14000, with some outliers above 15000. State 45 has higher vehicle miles traveled across years consistently. There is a general upward trend across years and this shows some degree of negative correlation with fatality rates.
+
+```{r fig.height=4.5, fig.width=4.5}
+# Correlation plot
+driving.panel <- pdata.frame(data, c("state","year"), drop.index = TRUE);corrplot(cor(driving.panel[,c(1:12,19:20,23:28,54)]), method='circle')
+```
+
+We see that the "perc_14_24" which is the percent population between 14 and 24 has a very strong correlation with the "fatality rate". The 'minimum age' has a negative correlation with the fatality rate, so is the 'zero tolerance' even though it is not very strong.
+
+Next we move to a detail bivariate EDA to explore relationship between explanatory variables and outcome variable. We aggregate the data, combine the separate values by state into appropriate sums/averages for the nation. The intention here is to see how states have changed their laws over time. We look at how speed limit laws, drinking laws, seatbelt and driver's license law have changed:
+```{r fig.height=10, fig.width=7.0}
+aggregatedData = data %>% mutate(sbany = as.integer(seatbelt > 0),slGt55 = as.integer((sl65 + sl70 +  sl75  + slnone) > 0),slGt65 = as.integer((sl70 +  sl75  + slnone) > 0),slGt70 = as.integer((sl75  + slnone) > 0),minageGt18 = as.integer(minage > 18),minageGt19 = as.integer(minage > 19),minageGt20 = as.integer(minage > 20)) %>% group_by(year) %>% summarise(totfat = sum(totfat), population = sum(statepop), slGt55 = sum(slGt55),slGt65 = sum(slGt65),slGt70 = sum(slGt70),slnone = sum(slnone),minageGt18 = sum(minageGt18),minageGt19 = sum(minageGt19),minageGt20 = sum(minageGt20),bac08 = sum(bac08), gdl = sum(gdl), perse = sum(perse), zerotol = sum(zerotol), sbprim = sum(sbprim), sbsecon = sum(sbsecon), sbany = sum(sbany)) %>% mutate(totfatrte = 100000 * totfat / population) 
+p1<-ggplot(data, aes(x=year, y=totfatrte, size=sl70plus, color=factor(state))) + geom_line()+ggtitle("Speed Limit 70 plus of States Across Year")
+p2<-aggregatedData %>% ggplot(aes(year))+geom_line(aes(y = totfatrte, col = "Fatality Rate"), size = 2)+geom_line(aes(y = bac08, col = "#States BAC .08"))+geom_line(aes(y = zerotol, col = "#States Zero-Tolerance")) +geom_line(aes(y = minageGt18, col = "#States Min Age > 18"))+geom_line(aes(y = minageGt19, col = "#States Min Age > 19")) +geom_line(aes(y = minageGt20, col = "#States Min Age > 20")) +ggtitle("Drinking Law Trends: 1980-2004") + ylab("") + xlab("Year") + labs(col = "")
+p3<-aggregatedData %>% ggplot(aes(year))+geom_line(aes(y = totfatrte, col = "Fatality Rate"), size = 2)+geom_line(aes(y = sbsecon, col = "#States SB-Secondary"))+geom_line(aes(y = sbprim, col = "#States SB-Primary"))+geom_line(aes(y = sbany, col = "#States SB-Any"))+geom_line(aes(y = gdl, col = "#States GDL"))+geom_line(aes(y = perse, col = "#States Per-se"))+ggtitle("Seat Belt and Driver's License Law Trends: 1980-2004") + ylab("") + xlab("Year") + labs(col = "")
+grid.arrange(p1,p2,p3,nrow=3)
+```
+
+The first plot above shows that while several of the states moved to a 70mph speed limit, the effect of the change on the fatality rate was different for different states. Observe, how, for some states the fatality rates increased after the change to *sl70plus* while for a very few they continued on the downward trend. This makes us believe that there are some unobserved city effects that effect the fatality rate for a given change in speed limit. Therefore, the explanatory variable *sl70plus* may not be an important explanatory variable for the fatality rate.
+
+From second plot, the drop in fatality rates from 1980-1983 correlates with the increased minimum drinking age in several states.  The  drop in fatality rates from 1988-1992 coincide with the increase in zero-tolerance states and the increase in BAC08 states.  As with the speed limit laws, there are no years with reversions to prior values.  The minimum drinking age either increases or remains the same, and the same for zero-tolerance and BAC08. 
+
+From third plot, no obvious correlation between seatbelt laws is seen with the 1980-1983 drop in fatality rate, but the 1988-1992 drop occurs over a time when seatbelt laws and per-se laws were increasing quickly. The graduated license law does not seem correlated with any meaningful drop in fatality rate, especially compared to seatbelt-primary over the time when the GDL laws were adopted.
+
+## Question 2
+
+Variable _totfatrte_ is defined as total number of fatalities in 100,000 population.  This calculation is per-state and states have (very) different populations.  Since our data set has one row per state per year, we are giving states with lower/higher populations equal weight in the model(s).  This is reasonable because the various explanatory variables (laws) change at the state level from year to year.
+
+As requested we can calculate the average of this variable for each year in the data set:
+
+```{r fig.height=1.5, fig.width=3}
+byYear.mean <- aggregate(data, by=list(data$year), FUN=mean)
+mean.totfatrte.df = round(data.frame(year=1980:2004, mean.totfatrte=byYear.mean$totfatrte), 2)
+as_tsibble(mean.totfatrte.df,index=year)%>%autoplot(mean.totfatrte)+ggtitle("Mean Fatalities by Year")+ylab("Fatalities")
+```
+
+Mean of total fatalities show decreasing trend over years. After year 1992, when mean fatalities drop below 18, this number show a stable trend.  A model with each year as a dummy variable(factor):
+
+$$totfatrte_{it} = \beta_0 + \delta_{81} d81 + \delta_{82} d82 + ... + \delta_{04}d04 + u_{it}$$
+
+```{r}
+# Linear Regression
+fit.lm <- lm(totfatrte ~ factor(year), data=data);summary(fit.lm)
+```
+
+F-statistic is 7.164 with p-value significantly below threshold level. Using year as explanatory is significant at 95% level. This shows that total fatalities is decreasing over time and that the year is sufficient to explain our outcome at a statistically significant level.  Of course, the coefficients on each year (relative to intercept/base year 1980) are identical to the averages of the rows for each year since no other variables are included in the model.  Therefore this model offers no additional insight relative to the average by year.
+
+Driving became safer over time if you use fatality rate as a measure/proxy for safety, however it is unclear if injuries, property damages, or other measures of safety trended similarly to the fatality rates in this data set.
+
+## Question 3
+
+Variables bac08, bac10, perse, sbprim, sbsecon, sl70plus, gdl are supposed to be binary variables. But due to the fact that some states implemented the law in middle of year, some of the these variables have values between 0 and 1. For correct modeling of binary variables, we need all values to be 0 or 1, for approximation, we will round the values to be 0 or 1. Our model:
+
+$$totfatrte_{it} = \beta_0 + \delta_{81} d81 + ... + \beta_1bac08_{it} + \beta_2bac10_{it} + \beta_3perse_{it} + \beta_4sbprim_{it} + ... + u_{it}$$
+
+```{r fig.height=3.0, fig.width=6}
+# round up binary variables
+data.round <- data;data.round$bac08<-factor(round(data$bac08), levels=c(0,1));
+data.round$bac10<-factor(round(data$bac10), levels=c(0,1));
+data.round$perse<-factor(round(data$perse), levels=c(0,1));
+data.round$sbprim<-factor(round(data$sbprim),levels=c(0,1));
+data.round$sbsecon<-factor(round(data$sbsecon),levels=c(0,1))
+data.round$sl70plus<-factor(round(data$sl70plus), levels=c(0,1));
+data.round$gdl<-factor(round(data$gdl), levels=c(0,1))
+# fit lm
+fit.lm2 <- lm(totfatrte ~ factor(year)+bac08+bac10+perse+sbprim+sbsecon+sl70plus+gdl+perc14_24+unem+vehicmilespc,data=data.round)
+summary(fit.lm2)
+# diagnostic plots
+p1<-ggplot(fit.lm2, aes(.fitted, .resid))+geom_point()+geom_smooth(method="loess", col="red", formula="y~x")+geom_hline(yintercept=0, col="grey", linetype="dashed")+ggtitle(("Residual vs Fitted"))+theme_bw()
+p2<-ggplot(fit.lm2, aes(.fitted, sqrt(abs(.stdresid))))+geom_point(na.rm=TRUE)+geom_smooth(formula="y~x", method="loess", na.rm = TRUE, col="red")+xlab("Fitted Value")+ylab(expression(sqrt("|Standardized residuals|")))+ggtitle("Scale-Location")+theme_bw()
+p3<-ggplot(fit.lm2, aes(sample=.stdresid)) + stat_qq() + stat_qq_line(col="black", linetype="dashed")+theme_bw()+ggtitle("Q-Q Plot")+ylab("Residuals")
+list.acf<-acf(fit.lm2$residuals, plot=FALSE);bacf.df<-with(list.acf, data.frame(lag,acf));N<-as.numeric(list.acf$n.used)
+p4<-ggplot(bacf.df, aes(x=lag, y = acf))+geom_hline(aes(yintercept = 0))+geom_segment(mapping = aes(xend = lag, yend = 0))+ggtitle("ACF of Residuals") + theme_bw() + geom_hline(yintercept = qnorm((1+0.95)/2)/sqrt(N), colour = "blue",linetype = "dashed") + geom_hline(yintercept = - qnorm((1+0.95)/2)/sqrt(N), colour = "blue",linetype = "dashed")
+grid.arrange(p1,p2,p3,p4,nrow=2)
+```
+
+Variables _bac08_ and _bac10_ are binary indicator variables, indicating if a state had law of blood alcohol content of level 0.08% and 0.10% repectively. From mean plot of variables _bac08_ and _bac10_ in EDA, we see that majority of state start with no law on blood alcohol content, and then implementing a 0.10% limit, and then a more strict limit of 0.08%. Coefficient of _bac10_ can be interpreted as, states with blood alcohol content limit 0.10% law have 1.238 less fatalities per 100,000 population. Coefficient of _bac08_ can be interpreted as, states with blood alcohol content limit 0.08% law have 2.194 less fatalities per 100,000 population. 
+
+Variable _perse_ (per se law) has p-value of 0.027433 in pooled OLS result. This variable is statistically significant at 95% level. It shows that there is empirical evidence that per se law is negatively correlated with fatalities.
+
+Variable _sbprim_ (primary seat belt law) has p-value of 0.847868 in pooled OLS result. This variable is not statistically significant at 95% level. It shows that there is no empirical evidence that primary seat belt law is correlated with fatality rate.
+
+Even though the perc_14_24 had a strong correlation with fatality rate as seen in the corrplot, it did not turn out signifianct in the pooled regression. However, speed limit of 70-plus did turn out significiant. It fact it indicates that controlling for all other factors, states with speed limit 70 or above (incl. no limit) have 3.24 more fatalities per 100,000 population.
+
+One thing to note is that, from regression diagnostic, we observed heteroskedasticity on residuals from scale-location plot and serial correlations on residuals from ACF graph. Serial correlations on residuals suggest there are state level unobserved fixed effects. Serial correlations and heteroskedasticity on residuals suggest the test statistics in pooled OLS result are not valid.
+
+## Question 4
+Adding a fixed effect for state:
+```{r}
+data.panel = pdata.frame(data.round, index=c("state", "year"))
+fit.plm.fe <-plm(totfatrte~bac08+bac10+perse+sbprim+sbsecon+sl70plus+gdl+perc14_24+unem+vehicmilespc,
+                 data=data.panel, model='within')
+summary(fit.plm.fe)
+```
+
+In fixed effect model, the coefficient of _bac10_ is similar to pooled OLS and and the coefficient of _bac08_ is smaller in absolute value. _perse_ is highly statistically significant in fixed effects model but it was marginally statistically significant in pooled OLS. _sbprim_ is highly statistically significant in fixed effects model but it was not statistically significant in pooled OLS.
+
+Result from fixed effect model is more reliable. In pooled OLS, we have to assume no state level unobserved fixed effects, otherwise test statistics are not valid. While in fixed effects model, we are allowed to have unobserved fixed effects present in population model and this fixed effect is allowed to be correlated with explanatory variables. In ACF graph of pooled OLS residuals, we observe serial correlations and this suggests the present of unobserved effect. Therefore assumptions of OLS are not met and pooled OLS result is not reliable. Fixed effect model is the preferred choice.
+
+## Question 5
+```{r}
+fit.plm.re <- plm(totfatrte~bac08+bac10+perse+sbprim+sbsecon+sl70plus+gdl+perc14_24+unem+vehicmilespc,
+                 data=data.panel, model='random')
+phtest(fit.plm.fe, fit.plm.re)
+```
+
+P-value is smaller than 0.05 in Hausman test, we can reject null hypothesis that random effect model is preferred. Fixed Effect model should be chosen for our analysis.
+
+This comes as no surprise. We have data from all 48 states, presumptively including any state for which our model may be pertinent. As such, there is no need for a random effect per state. Our data set has balanced data for each.
+
+Regarding model specifications, the random effects model does not allow for arbritrary correlations between unobserved fixed effects and explanatory variables. There could be state level unobserved effects, e.g. culture, geographical features, presence of industries that rely on natural resources. Blood alcohol limit and unemployment are very likely to be correlated with these examples of state level unobserved effects.
+
+## Question 6
+Increase miles driven per capita by 1000, the expect total fatalities per 100,000 population increase by 0.00024665 * 1000 = 0.24665, holding all other variables constant.  
+
+As noted in the EDA, it would be reckless to make such an assertion in the hypothetical situation that such an intervention could be carried out. Also worth noting is that EDA shows _vehicmilespc_ trends upwards over the timespan, and _totfatrte_ trends downward, suggesting a negative correlation between the two.  However after accounting for the effects of the other explanatory variables, the relationship appears to be positive.  This isn't hard to believe because more miles offers more chances for a traffic fatality.
+
+## Question 7
+In this scenario, the estimators are not as efficient. Statistical inferences are not valid. If only heteroskedasticity present but not serial correlation, we can use heteroskedastic robust standard errors for statistical inference.
+
+If unobserved effect is uncorrelated with all explanatory variables, the estimators would be consistent, otherwise estimators would not be consistent.
+
