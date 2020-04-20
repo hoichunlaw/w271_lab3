@@ -210,7 +210,7 @@ $$totfatrte_{it} = \beta_0 + \delta_{81} d81 + \delta_{82} d82 + ... + \delta_{0
 fit.lm <- lm(totfatrte ~ factor(year), data=data);summary(fit.lm)
 ```
 
-F-statistic is 7.164 with p-value significantly below threshold level. Using year as explanatory is significant at 95% level. This shows that total fatalities is decreasing over time and that the year is sufficient to explain our outcome at a statistically significant level.  Of course, the coefficients on each year (relative to intercept/base year 1980) are identical to the averages of the rows for each year since no other variables are included in the model.  Therefore this model offers no additional insight relative to the average by year:
+F-statistic is 7.164 with p-value significantly below threshold level. Using year as explanatory is significant at 95% level. This shows that total fatalities is decreasing over time and that the year is sufficient to explain our outcome at a statistically significant level.  Of course, the coefficients on each year (relative to intercept/base year 1980) are identical to the averages of the rows for each year since no other variables are included in the model.  Therefore the only additional insight from this model relative to the average by year is the standard errors:
 ```{r}
 average.per.year = byYear.mean$totfatrte
 coefficients.vector = as.vector(fit.lm$coefficients)
